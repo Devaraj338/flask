@@ -1,0 +1,67 @@
+import requests
+
+def get_all_users():
+    res = requests.get("http://127.0.0.1:5000/users")
+    if res.status_code == 200:
+        print(res.json())
+    else:
+        print(f"Failed to retrieve users. Status code: {res.status_code}")
+
+def get_single_user():
+    user_id = input("Enter the user ID: ")
+    res = requests.get(f"http://127.0.0.1:5000/users/{user_id}")
+    if res.status_code == 200:
+        print(res.json())
+    else:
+        print(f"Failed to retrieve the user. Status code: {res.status_code}")
+
+def create_user():
+    new_user_data = {
+        'username': input("Enter a username: "),
+        'email': input("Enter an email: ")
+    }
+    res = requests.post("http://127.0.0.1:5000/users", json=new_user_data)
+    if res.status_code == 201:
+        print("User created successfully")
+    else:
+        print(f"Failed to create user. Status code: {res.status_code}")
+
+def update_user():
+    user_id_to_update = input("Enter the ID of the user to update: ")
+    update_data = {
+        'username': 'Sathish',
+        'email': 'sathish@gmail.com'
+    }
+    res = requests.put(f'http://127.0.0.1:5000/users/{user_id_to_update}', json=update_data)
+    if res.status_code == 200:
+        print("User updated successfully")
+    else:
+        print(f"Failed to update user. Status code: {res.status_code}")
+
+def delete_user():
+    user_id_to_delete = input("Enter the ID of the user to delete: ")
+    res = requests.delete(f'http://127.0.0.1:5000/users/{user_id_to_delete}')
+    if res.status_code == 204:
+        print("User deleted successfully")
+    else:
+        print(f"Failed to delete user. Status code: {res.status_code}")
+
+users = input("Which task would you like to perform (get/getone/post/put/delete)? ")
+
+if users == "get":
+    get_all_users()
+
+elif users == "getone":
+    get_single_user()
+
+elif users == "post":
+    create_user()
+
+elif users == "put":
+    update_user()
+
+elif users == "delete":
+    delete_user()
+
+else:
+    print("Enter a valid action (get/getone/post/put/delete)")

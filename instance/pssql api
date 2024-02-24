@@ -1,0 +1,75 @@
+from flask import Flask, request, jsonify
+import psycopg2
+from psrp import Client
+
+app = Flask(__name__)
+
+# Replace these with your actual PostgreSQL and PowerShell configurations
+POSTGRESQL_CONFIG = {
+    'host': 'your_postgresql_host',
+    'database': 'your_database_name',
+    'user': 'your_postgresql_user',
+    'password': 'your_postgresql_password',
+    'port': 'your_postgresql_port',
+}
+
+POWERSHELL_CONFIG = {
+    'host': 'your_windows_host',
+    'username': 'your_windows_username',
+    'password': 'your_windows_password',
+    'port': 'your_windows_port',
+    'ssl': True  # Set to True if using SSL, otherwise False
+}
+
+def execute_postgresql_query(query):
+    try:
+        connection = psycopg2.connect(**POSTGRESQL_CONFIG)
+        cursor = connection.cursor()
+
+        cursor.execute(query)
+        result = cursor.fetchall()
+
+        cursor.close()
+        connection.close()
+
+        return result
+
+    except Exception as e:
+        return str(e)
+
+def execute_powershell_command(command):
+    try:
+        with Client(POWERSHELL_CONFIG['host'], username=POWERSHELL_CONFIG['username'],
+                    password=POWERSHELL_CONFIG['password'], port=POWERSHELL_CONFIG['port'],
+                    ssl=POWERSHELL_CONFIG['ssl']) as client:
+            result = client.execute_ps(command)
+
+        return result
+
+    except Exception as e:
+        return str(e)
+
+@app.route('/api/execute_query', methods=['POST'])
+def execute_query():
+    try:
+        data = request.get_json()
+        query = data.get('query')
+        windows_credentials = data.get('windows_credentials')
+
+        if not query or not windows_credentials:
+            return jsonify({'Status': 'Failure', 'Message': 'Invalid or missing query or Windows credentials'}), 400
+
+        # Execute PostgreSQL query
+        postgresql_result = execute_postgresql_query(query)
+
+        # Execute PowerShell command
+        powershell_command = f'Write-Host "PostgreSQL Result: {postgresql_result}"'
+        powershell_result = execute_powershell_command(powershell_command)
+
+        return jsonify({'Status': 'Success', 'PostgreSQL_Result': postgresql_result, 'PowerShell_Result': powershell_result})
+
+    except Exception as e:
+        return jsonify({'Status': 'Failure', 'Message': f"An error occurred: {str(e)}"}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)

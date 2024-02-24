@@ -1,0 +1,202 @@
+from flask import Flask, jsonify, request
+import openpyxl
+from pypsrp.client import Client
+import smtplib, requests
+from email.message import EmailMessage
+import boto3,paramiko
+
+app = Flask(__name__)
+
+client = None  # Define the client variable
+
+def authenticate_client(hostname, port, username, password):
+    global client
+    try:
+        # Initialize the client with the provided credentials
+        client = Client(hostname, port=port, username=username, password=password, ssl=False)
+        return True
+    except Exception as e:
+        print(f"Error authenticating: {str(e)}")
+        return False
+    
+def get_linux_credentials(data):
+    return (
+        data.get('host'),
+        data.get('port'),
+        data.get('username'),
+        data.get('password')
+    )
+
+def execute_linux_command(command, credentials):
+    try:
+        host, port, username, password = credentials
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(host, port=port, username=username, password=password)
+        stdin, stdout, stderr = ssh.exec_command(command)
+        result = stdout.read().decode('utf-8')
+        exit_status = stdout.channel.recv_exit_status()
+        ssh.close()
+        return result, exit_status
+    except paramiko.SSHException as ssh_exception:
+        return f"SSH Exception: {str(ssh_exception)}", -1
+    except Exception as e:
+        return f"An error occurred: {str(e)}", -1
+
+def export_health_to_excel(health_info):
+    try:
+        # Create a new Excel workbook
+        wb = openpyxl.Workbook()
+        ws = wb.active
+
+        # Write server health information to Excel
+        ws['A1'] = 'Metric'
+        ws['B1'] = 'Value'
+        ws['A2'] = 'CPU Usage'
+        ws['B2'] = health_info.get('CPUUsage', 'N/A')
+        ws['A3'] = 'Memory Usage'
+        ws['B3'] = health_info.get('MemoryUsage', 'N/A')
+
+        # Save Excel workbook to a Windows-compatible path with double backslashes
+        excel_file_path = "C:\\Path\\New folder\\New XLS Worksheet.xls"
+        wb.save(excel_file_path)
+
+        return excel_file_path
+
+    except Exception as e:
+        raise Exception(f"Error exporting to Excel: {str(e)}")
+
+    
+ 
+@app.route('/send_email', methods=['POST'])
+def send_email():
+    try:
+        data = request.get_json()
+        smtp_server = data.get('smtp_server')
+        smtp_port = data.get('smtp_port')
+        sender_email = data.get('sender_email')
+        receiver_email = data.get('receiver_email')
+        subject = data.get('subject')
+        body = data.get('body')
+        password = data.get('password')
+
+        # Create EmailMessage object
+        message = EmailMessage()
+        message.set_content(body)
+        message['Subject'] = subject
+        message['From'] = sender_email
+        message['To'] = receiver_email
+
+        # Connect to SMTP server and send email
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(sender_email, password)
+            server.send_message(message)
+
+        return jsonify({'message': 'Email sent successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+@app.route('/get_memory_details', methods=['POST'])
+def get_memory_details():
+    
+        data = request.get_json()
+        hostname = data.get('hostname')
+        port = data.get('port')
+        username = data.get('username')
+        password = data.get('password')
+
+        auth_success = authenticate_client(hostname, port, username, password)
+        if not auth_success:
+            return jsonify({'error': 'Failed to authenticate. Check credentials.'})
+
+        result = client.execute_ps(""" Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory""")
+        output = [item.strip() for item in result[0].strip().split('\n')]
+        return jsonify({'Memory_Details': output})
+    
+
+
+@app.route('/create-vm', methods=['POST'])
+def create_vm():
+    ec2_client = boto3.client('ec2')
+    request_data = request.get_json()
+
+    # Extract necessary data from the request payload
+    instance_type = request_data.get('instance_type')
+    ami_id = request_data.get('ami_id')
+    key_name = request_data.get('key_name')
+    # Other parameters...
+
+    # Create the EC2 instance
+    response = ec2_client.run_instances(
+        ImageId=ami_id,
+        InstanceType=instance_type,
+        KeyName=key_name,
+        MinCount=1,
+        MaxCount=1,
+        # Other instance configuration parameters...
+    )
+
+    instance_id = response['Instances'][0]['InstanceId']
+    return jsonify({"instance_id": instance_id})
+
+
+# Endpoint to generate URL status report
+@app.route('/generate_report', methods=['POST'])
+def generate_report():
+    data = request.get_json()
+
+    if 'urls' not in data or not isinstance(data['urls'], list):
+        return jsonify({'error': 'Please provide a list of URLs in the request'}), 400
+
+    url_status_report = {}
+
+    for url in data['urls']:
+        try:
+            response = requests.head(url)
+            status_code = response.status_code
+            url_status_report[url] = 'Online' if status_code == 200 else 'Offline'
+        except requests.RequestException:
+            url_status_report[url] = 'Error: Unable to fetch URL'
+
+    return jsonify({'report': url_status_report}), 200
+
+
+
+
+
+
+
+@app.route('/automation/api/1.0/linux/server_health', methods=['POST'])
+def linux_server_health():
+    try:
+        data = request.get_json()
+
+        # Get Linux server credentials
+        credentials = get_linux_credentials(data)
+
+        # Execute Linux command to check server health
+        command = "top -n 1 -b"
+        result, exit_status = execute_linux_command(command, credentials)
+
+        if exit_status == 0:
+            # Parse the result for relevant metrics
+            # For simplicity, assume you can extract CPU and Memory usage from the result
+            cpu_usage = float(result.split('\n')[2].split()[1])
+            memory_usage = float(result.split('\n')[3].split()[3].replace('%', ''))
+
+            # Create a dictionary with the health information
+            health_info = {'CPUUsage': cpu_usage, 'MemoryUsage': memory_usage}
+
+            # Export health information to Excel
+            excel_file_path = export_health_to_excel(health_info)
+
+            return jsonify({'Status': 'Success', 'ExcelFilePath': excel_file_path})
+        else:
+            return jsonify({'error': result}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+
+if __name__ == '__main__':
+    app.run(debug=True)

@@ -1,0 +1,28 @@
+from pypsrp.client import Client
+from pypsrp.powershell import PowerShell
+
+def execute_sql_query(server_name, username, password, database, query):
+    try:
+        with Client(server_name, username=username, password=password) as client:
+            ps = PowerShell(client)
+            ps.add_cmdlet('Invoke-Sqlcmd')
+            ps.add_argument(f'-Query "{query}"')
+            ps.add_argument(f'-Database "{database}"')
+            ps.invoke()
+            output = ps.output
+
+            # Print or return the output
+            for item in output:
+                print(item)
+    except Exception as e:
+        print(f"Error: {str(e)}")
+
+# Replace these values with your MSSQL server credentials and query
+server_name = "WINDOWSMEMBER\AUTOINTELLI"
+username = "sa"
+password = '@uto!ntell!@123'
+database = "autointelli"
+query = 'show databases'
+
+# Call the function with your parameters
+execute_sql_query(server_name, username, password, database, query)

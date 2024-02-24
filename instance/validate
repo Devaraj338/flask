@@ -1,0 +1,8 @@
+from validate_email_address import validate_email
+
+# Example usage:
+email_to_validate = input()
+if validate_email(email_to_validate):
+    print(f"{email_to_validate} is a valid email address.")
+else:
+    print(f"{email_to_validate} is not a valid email address.") 

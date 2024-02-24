@@ -1,0 +1,119 @@
+from flask import Flask, request, jsonify
+import psycopg2, pyodbc
+from time import time
+
+app = Flask(__name__)
+
+def execute_psql_query_latency(host, port, database, user, password, sql_query):
+    start_time = time()
+    connection = None
+
+    try:
+        # Connect to PostgreSQL
+        connection = psycopg2.connect(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password
+        )
+
+        # Create a cursor and execute the query
+        cursor = connection.cursor()
+        cursor.execute(sql_query)
+
+        # Commit and close the connection
+        connection.commit()
+
+        # Calculate latency in milliseconds
+        latency = (time() - start_time) * 1000
+
+        return latency
+    finally:
+        if connection:
+            connection.close()
+
+@app.route('/api/psql/query_latency', methods=['POST'])
+def query_latency():
+    try:
+        data = request.get_json()
+        sql_query = data.get('sql_query')
+        psql_credentials = {
+            'host': data.get('host'),
+            'port': data.get('port'),
+            'database': data.get('database'),
+            'user': data.get('user'),
+            'password': data.get('password')
+        }
+
+        # Validate that sql_query is not empty
+        if not sql_query:
+            return jsonify({'Status': 'Failure', 'Message': 'SQL query is empty'}), 400
+
+        # Measure query latency
+        latency = execute_psql_query_latency(sql_query=sql_query, **psql_credentials)
+
+        return jsonify({'Status': 'Success', 'Latency(ms)': latency})
+    except psycopg2.Error as e:
+        return jsonify({'Status': 'Failure', 'Message': f"PostgreSQL Error: {str(e)}"}), 400
+    except Exception as e:
+        return jsonify({'Status': 'Failure', 'Message': f"An error occurred: {str(e)}"}), 500
+
+def execute_mssql_query_latency(host, port, database, user, password, instance, query):
+    start_time = time()
+    connection = None
+
+    try:
+        # Connect to MS SQL Server
+        connection = pyodbc.connect(
+            driver='{SQL Server}',
+            server=f'{host},{port}\\{instance}',  # Include the instance in the connection string
+            database=database,
+            uid=user,
+            pwd=password
+        )
+
+        # Create a cursor and execute the query
+        cursor = connection.cursor()
+        cursor.execute(query)
+
+        # Commit and close the connection
+        connection.commit()
+
+        # Calculate latency in milliseconds
+        latency = (time() - start_time) * 1000
+
+        return latency
+    finally:
+        if connection:
+            connection.close()
+
+@app.route('/api/mssql/query_latency', methods=['POST'])
+def mssql_query_latency():
+    try:
+        data = request.get_json()
+        sql_query = data.get('sql_query')
+        mssql_credentials = {
+            'host': data.get('host'),
+            'port': data.get('port'),
+            'database': data.get('database'),
+            'user': data.get('user'),
+            'password': data.get('password'),
+            'instance': data.get('instance')  # Include the instance in the credentials
+        }
+
+        # Validate that sql_query is not empty
+        if not sql_query:
+            return jsonify({'Status': 'Failure', 'Message': 'SQL query is empty'}), 400
+
+        # Measure query latency
+        latency = execute_mssql_query_latency(query=sql_query, **mssql_credentials)
+
+        return jsonify({'Status': 'Success', 'Latency(ms)': latency})
+    except pyodbc.Error as e:
+        return jsonify({'Status': 'Failure', 'Message': f"MS SQL Server Error: {str(e)}"}), 400
+    except Exception as e:
+        return jsonify({'Status': 'Failure', 'Message': f"An error occurred: {str(e)}"}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
